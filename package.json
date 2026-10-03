@@ -1,0 +1,11 @@
+{
+  "name": "tool-choice-release-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node tool-choice-release-proxy.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
