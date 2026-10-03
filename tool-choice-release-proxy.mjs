@@ -100,7 +100,7 @@ const server = http.createServer(async (req, res) => {
     upstream.headers.forEach((v, k) => {
       if (!DROP_RES.has(k)) outHeaders[k] = v;
     });
-if (wasContinuation && LOG) {
+if (LOG) {
   const clone = upstream.clone();
   clone.text().then((text) => {
     console.log("[tc] continuation upstream response:", text);
