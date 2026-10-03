@@ -44,6 +44,7 @@ const server = http.createServer(async (req, res) => {
 
   const chunks = [];
   for await (const c of req) chunks.push(c);
+  let wasContinuation = false;
   let body = Buffer.concat(chunks);
 
   if (
@@ -55,7 +56,7 @@ const server = http.createServer(async (req, res) => {
 
       const before = json.tool_choice;
       const continuation = isPostToolContinuation(json.messages);
-
+      wasContinuation = continuation;
       if (continuation && before === "required") {
         json.tool_choice = "auto";
       }
@@ -99,7 +100,14 @@ const server = http.createServer(async (req, res) => {
     upstream.headers.forEach((v, k) => {
       if (!DROP_RES.has(k)) outHeaders[k] = v;
     });
-
+if (wasContinuation && LOG) {
+  const clone = upstream.clone();
+  clone.text().then((text) => {
+    console.log("[tc] continuation upstream response:", text);
+  }).catch((e) => {
+    console.error("[tc] continuation response log failed:", e.message);
+  });
+}
     res.writeHead(upstream.status, outHeaders);
 
     if (upstream.body) {
