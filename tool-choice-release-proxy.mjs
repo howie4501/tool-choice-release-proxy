@@ -63,8 +63,24 @@ const server = http.createServer(async (req, res) => {
   json.max_completion_tokens = 2048;
 }
       if (continuation && before === "required") {
-        json.tool_choice = "auto";
-      }
+  const lastTool = [...(json.messages || [])].reverse()
+    .find(m => m?.role === "tool" || m?.role === "function");
+
+  const toolText = typeof lastTool?.content === "string"
+    ? lastTool.content
+    : JSON.stringify(lastTool?.content ?? "");
+
+  const toolFailed =
+    /\berror\b|failed|failure|invalid|not possible|cannot|can't|must use only|timed out|timeout/i.test(toolText);
+
+  json.tool_choice = toolFailed ? "required" : "auto";
+
+  console.log(
+    `[tc] continuation toolFailed=${toolFailed} tool_choice ${JSON.stringify(before)} -> ${JSON.stringify(json.tool_choice)}`
+  );
+}
+      
+      
 
       if (LOG) {
         console.log(
