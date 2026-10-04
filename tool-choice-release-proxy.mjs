@@ -81,7 +81,9 @@ const server = http.createServer(async (req, res) => {
   for (const [k, v] of Object.entries(req.headers)) {
     if (!DROP_REQ.has(k)) headers[k] = v;
   }
-
+if (process.env.VLLM_API_KEY) {
+  headers["authorization"] = `Bearer ${process.env.VLLM_API_KEY}`;
+}
   headers["content-length"] = String(body.length);
 
   const path = req.url.replace(/^\/v1/, "");
