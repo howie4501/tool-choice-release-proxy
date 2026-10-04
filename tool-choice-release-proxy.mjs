@@ -58,6 +58,10 @@ const server = http.createServer(async (req, res) => {
       const continuation = isPostToolContinuation(json.messages);
       wasContinuation = continuation;
      console.log("[tc] max_tokens =", json.max_tokens, "max_completion_tokens =", json.max_completion_tokens); 
+     if (json.max_completion_tokens === 1) {
+  console.log("[tc] TEST override max_completion_tokens 1 -> 2048");
+  json.max_completion_tokens = 2048;
+}
       if (continuation && before === "required") {
         json.tool_choice = "auto";
       }
