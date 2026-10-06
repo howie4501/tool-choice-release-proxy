@@ -87,7 +87,9 @@ const server = http.createServer(async (req, res) => {
           `[tc] msgs=${json.messages?.length} continuation=${continuation} tool_choice ${JSON.stringify(before)} -> ${JSON.stringify(json.tool_choice)}`
         );
       }
-
+if (!Array.isArray(json.tools) || json.tools.length === 0) {
+  delete json.tool_choice;
+}
       body = Buffer.from(JSON.stringify(json));
     } catch (e) {
       console.error(
