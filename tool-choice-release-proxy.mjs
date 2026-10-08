@@ -73,7 +73,7 @@ const server = http.createServer(async (req, res) => {
   const toolFailed =
     /\berror\b|failed|failure|invalid|not possible|cannot|can't|must use only|timed out|timeout/i.test(toolText);
 
-  json.tool_choice = toolFailed ? "required" : "auto";
+  json.tool_choice = "auto";
 
   console.log(
     `[tc] continuation toolFailed=${toolFailed} tool_choice ${JSON.stringify(before)} -> ${JSON.stringify(json.tool_choice)}`
