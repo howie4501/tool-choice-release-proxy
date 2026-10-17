@@ -90,6 +90,7 @@ const server = http.createServer(async (req, res) => {
 if (!Array.isArray(json.tools) || json.tools.length === 0) {
   delete json.tool_choice;
 }
+     console.log("[tc] FINAL tools=" + (json.tools?.length ?? 0) + " tool_choice=" + JSON.stringify(json.tool_choice)); 
       body = Buffer.from(JSON.stringify(json));
     } catch (e) {
       console.error(
