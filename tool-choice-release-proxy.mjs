@@ -62,7 +62,7 @@ const server = http.createServer(async (req, res) => {
   console.log("[tc] TEST override max_completion_tokens 1 -> 2048");
   json.max_completion_tokens = 2048;
 }
-      if (continuation && before === "required") {
+      if (before === "required" && Array.isArray(json.tools) && json.tools.length > 0) {
   const lastTool = [...(json.messages || [])].reverse()
     .find(m => m?.role === "tool" || m?.role === "function");
 
