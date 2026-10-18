@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 
 const UPSTREAM = (process.env.UPSTREAM_BASE || "").replace(/\/+$/, "");
 const PORT = Number(process.env.PORT || 8080);
-const LOG = process.env.LOG_BODIES !== "0";
+const LOG = process.env.LOG_BODIES !== "1";
 
 if (!UPSTREAM) {
   console.error("UPSTREAM_BASE is required");
