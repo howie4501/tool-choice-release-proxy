@@ -62,7 +62,15 @@ const server = http.createServer(async (req, res) => {
   console.log("[tc] TEST override max_completion_tokens 1 -> 2048");
   json.max_completion_tokens = 2048;
 }
-      if (before === "required" && Array.isArray(json.tools) && json.tools.length > 0) {
+      const latestUser = [...(json.messages || [])].reverse().find(m => m?.role === "user");
+const userText = typeof latestUser?.content === "string" ? latestUser.content : JSON.stringify(latestUser?.content ?? "");
+const explicitSearch = /\b(search (the )?(web|internet|online)|web[_ -]?search|look (it )?up online|find (me )?.*online)\b/i.test(userText);
+const hasWebSearch = Array.isArray(json.tools) && json.tools.some(t => (t.function?.name || t.name) === "web_search");
+
+if (before === "required" && !continuation && explicitSearch && hasWebSearch) {
+  json.tool_choice = { type: "function", function: { name: "web_search" } };
+  console.log("[tc] explicit web search requested -> web_search");
+} else if (before === "required" && Array.isArray(json.tools) && json.tools.length > 0) {
   const lastTool = [...(json.messages || [])].reverse()
     .find(m => m?.role === "tool" || m?.role === "function");
 
