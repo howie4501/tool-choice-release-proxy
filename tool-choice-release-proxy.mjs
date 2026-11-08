@@ -1,3 +1,4 @@
+This 
 import http from "node:http";
 import { Readable } from "node:stream";
 
@@ -23,6 +24,35 @@ function isPostToolContinuation(messages) {
   return false;
 }
 
+// ---- URL provenance guard -------------------------------------------------
+// GUARD_MODE: off | log (default) | enforce
+// A URL in a final answer must already appear somewhere in the request context
+// (tool results, user text, history). Otherwise the model wrote it from imagination.
+const GUARD_MODE = (process.env.GUARD_MODE || "log").toLowerCase();
+
+function extractUrls(text) {
+  const found = String(text || "").match(/https?:\/\/[^\s)\]>"'<]+/gi) || [];
+  return [...new Set(found.map((u) => u.replace(/[.,;:!?]+$/, "")))];
+}
+
+function unverifiedUrls(content, messages) {
+  const ctx = JSON.stringify(messages || []);
+  return extractUrls(content).filter((u) => {
+    const bare = u.replace(/\/+$/, "");
+    return !(ctx.includes(u) || ctx.includes(bare));
+  });
+}
+
+function stripUrls(content, bad) {
+  let out = content;
+  for (const u of bad) {
+    const esc = u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp("\\[([^\\]]+)\\]\\(" + esc + "\\)", "g"), "$1 (link removed: not found in any search result)");
+    out = out.split(u).join("[link removed: not found in any search result]");
+  }
+  return out;
+}
+
 const DROP_REQ = new Set([
   "host",
   "content-length",
@@ -45,6 +75,8 @@ const server = http.createServer(async (req, res) => {
   const chunks = [];
   for await (const c of req) chunks.push(c);
   let wasContinuation = false;
+  let reqJson = null;
+  let hasWS = false;
   let body = Buffer.concat(chunks);
 
   if (
@@ -101,6 +133,8 @@ if (!Array.isArray(json.tools) || json.tools.length === 0) {
      console.log("[tc] TOOL NAMES:", (json.tools || []).map(t => t.function?.name || t.name || "unknown"));
       console.log("[tc] FINAL tools=" + (json.tools?.length ?? 0) + " tool_choice=" + JSON.stringify(json.tool_choice)); 
       body = Buffer.from(JSON.stringify(json));
+      reqJson = json;
+      hasWS = hasWebSearch;
     } catch (e) {
       console.error(
         "[tc] body parse failed, forwarding unchanged:",
@@ -135,6 +169,50 @@ if (process.env.VLLM_API_KEY) {
     upstream.headers.forEach((v, k) => {
       if (!DROP_RES.has(k)) outHeaders[k] = v;
     });
+    const isJson = (upstream.headers.get("content-type") || "").includes("application/json");
+    if (GUARD_MODE !== "off" && reqJson && !reqJson.stream && isJson) {
+      const text = await upstream.text();
+      let outText = text;
+      let status = upstream.status;
+      if (LOG) console.log("[tc] continuation upstream response:", text);
+      try {
+        const data = JSON.parse(text);
+        const msg = data?.choices?.[0]?.message;
+        const content = typeof msg?.content === "string" ? msg.content : "";
+        if (upstream.ok && msg && !(msg.tool_calls && msg.tool_calls.length) && content) {
+          const bad = unverifiedUrls(content, reqJson.messages);
+          if (bad.length) {
+            console.log(`[guard] mode=${GUARD_MODE} continuation=${wasContinuation} hasWebSearch=${hasWS} unverified urls=${JSON.stringify(bad)}`);
+            if (GUARD_MODE === "enforce") {
+              let done = false;
+              if (!wasContinuation && hasWS) {
+                const rj = { ...reqJson, tool_choice: { type: "function", function: { name: "web_search" } } };
+                const rb = Buffer.from(JSON.stringify(rj));
+                headers["content-length"] = String(rb.length);
+                const r2 = await fetch(UPSTREAM + path, { method: req.method, headers, body: rb });
+                const t2 = await r2.text();
+                if (r2.ok) {
+                  outText = t2;
+                  status = r2.status;
+                  done = true;
+                  console.log("[guard] answer had unverified urls -> retried with forced web_search");
+                  if (LOG) console.log("[tc] continuation upstream response:", t2);
+                }
+              }
+              if (!done) {
+                msg.content = stripUrls(content, bad);
+                outText = JSON.stringify(data);
+                console.log("[guard] unverified urls stripped from answer");
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[guard] error, passing response through unchanged:", e.message);
+      }
+      res.writeHead(status, outHeaders);
+      return res.end(outText);
+    }
 if (LOG) {
   const clone = upstream.clone();
   clone.text().then((text) => {
