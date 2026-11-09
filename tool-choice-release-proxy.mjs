@@ -58,7 +58,7 @@ function stripUrls(content, bad) {
 // FRESHNESS_MODE: off | log | fix (default fix). FRESHNESS_ACTION: delete (default) | blank.
 const FRESH_MODE = (process.env.FRESHNESS_MODE || "fix").toLowerCase();
 const FRESH_ACTION = (process.env.FRESHNESS_ACTION || "delete").toLowerCase();
-const NEWSY = /\b(today|tonight|yesterday|this (morning|week|weekend)|latest|breaking|news|scores?|weather|forecast|right now|currently|live|just (announced|released))\b/i;
+const NEWSY = /\b(today|tonight|yesterday|this (morning|week|weekend)|breaking|scores?|weather|forecast|right now|just (announced|released))\b/i;
 
 function latestUserText(messages) {
   const m = [...(messages || [])].reverse().find((x) => x?.role === "user");
@@ -67,14 +67,16 @@ function latestUserText(messages) {
 
 function fixFreshness(message, messages) {
   if (FRESH_MODE === "off" || !message || !Array.isArray(message.tool_calls)) return 0;
-  const wantsFresh = NEWSY.test(latestUserText(messages));
+  const newsMatch = latestUserText(messages).match(NEWSY);
+  const wantsFresh = !!newsMatch;
   let n = 0;
   for (const tc of message.tool_calls) {
     if (tc?.function?.name !== "web_search" || typeof tc.function.arguments !== "string") continue;
     let args;
     try { args = JSON.parse(tc.function.arguments || "{}"); } catch (e) { continue; }
     const f = args.freshness;
-    if (!f || wantsFresh) continue;
+    if (f && wantsFresh) { console.log(`[fresh] kept: matched ${JSON.stringify(newsMatch[0])}`); continue; }
+    if (!f) continue;
     console.log(`[fresh] mode=${FRESH_MODE} freshness=${JSON.stringify(f)} not requested by user${FRESH_MODE === "fix" ? " -> " + FRESH_ACTION : ""}`);
     if (FRESH_MODE !== "fix") continue;
     if (FRESH_ACTION === "blank") args.freshness = "";
