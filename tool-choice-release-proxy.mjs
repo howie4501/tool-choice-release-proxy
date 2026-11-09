@@ -52,6 +52,39 @@ function stripUrls(content, bad) {
   return out;
 }
 
+// ---- Freshness fix -------------------------------------------------------
+// Hermes fills web_search "freshness" with "day" on every call, which limits results
+// to the last 24 hours and ruins research queries (prices, comps, how-tos).
+// FRESHNESS_MODE: off | log | fix (default fix). FRESHNESS_ACTION: delete (default) | blank.
+const FRESH_MODE = (process.env.FRESHNESS_MODE || "fix").toLowerCase();
+const FRESH_ACTION = (process.env.FRESHNESS_ACTION || "delete").toLowerCase();
+const NEWSY = /\b(today|tonight|yesterday|this (morning|week|weekend)|latest|breaking|news|scores?|weather|forecast|right now|currently|live|just (announced|released))\b/i;
+
+function latestUserText(messages) {
+  const m = [...(messages || [])].reverse().find((x) => x?.role === "user");
+  return typeof m?.content === "string" ? m.content : JSON.stringify(m?.content ?? "");
+}
+
+function fixFreshness(message, messages) {
+  if (FRESH_MODE === "off" || !message || !Array.isArray(message.tool_calls)) return 0;
+  const wantsFresh = NEWSY.test(latestUserText(messages));
+  let n = 0;
+  for (const tc of message.tool_calls) {
+    if (tc?.function?.name !== "web_search" || typeof tc.function.arguments !== "string") continue;
+    let args;
+    try { args = JSON.parse(tc.function.arguments || "{}"); } catch (e) { continue; }
+    const f = args.freshness;
+    if (!f || wantsFresh) continue;
+    console.log(`[fresh] mode=${FRESH_MODE} freshness=${JSON.stringify(f)} not requested by user${FRESH_MODE === "fix" ? " -> " + FRESH_ACTION : ""}`);
+    if (FRESH_MODE !== "fix") continue;
+    if (FRESH_ACTION === "blank") args.freshness = "";
+    else delete args.freshness;
+    tc.function.arguments = JSON.stringify(args);
+    n++;
+  }
+  return n;
+}
+
 const DROP_REQ = new Set([
   "host",
   "content-length",
@@ -169,7 +202,7 @@ if (process.env.VLLM_API_KEY) {
       if (!DROP_RES.has(k)) outHeaders[k] = v;
     });
     const isJson = (upstream.headers.get("content-type") || "").includes("application/json");
-    if (GUARD_MODE !== "off" && reqJson && !reqJson.stream && isJson) {
+    if ((GUARD_MODE !== "off" || FRESH_MODE !== "off") && reqJson && !reqJson.stream && isJson) {
       const text = await upstream.text();
       let outText = text;
       let status = upstream.status;
@@ -178,7 +211,10 @@ if (process.env.VLLM_API_KEY) {
         const data = JSON.parse(text);
         const msg = data?.choices?.[0]?.message;
         const content = typeof msg?.content === "string" ? msg.content : "";
-        if (upstream.ok && msg && !(msg.tool_calls && msg.tool_calls.length) && content) {
+        if (upstream.ok && msg && fixFreshness(msg, reqJson.messages)) {
+          outText = JSON.stringify(data);
+        }
+        if (GUARD_MODE !== "off" && upstream.ok && msg && !(msg.tool_calls && msg.tool_calls.length) && content) {
           const bad = unverifiedUrls(content, reqJson.messages);
           if (bad.length) {
             console.log(`[guard] mode=${GUARD_MODE} continuation=${wasContinuation} hasWebSearch=${hasWS} unverified urls=${JSON.stringify(bad)}`);
@@ -192,6 +228,10 @@ if (process.env.VLLM_API_KEY) {
                 const t2 = await r2.text();
                 if (r2.ok) {
                   outText = t2;
+                  try {
+                    const d2 = JSON.parse(t2);
+                    if (fixFreshness(d2?.choices?.[0]?.message, reqJson.messages)) outText = JSON.stringify(d2);
+                  } catch (e) { /* keep raw */ }
                   status = r2.status;
                   done = true;
                   console.log("[guard] answer had unverified urls -> retried with forced web_search");
