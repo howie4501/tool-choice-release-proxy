@@ -85,6 +85,39 @@ function fixFreshness(message, messages) {
   return n;
 }
 
+// ---- Source-link reminder ------------------------------------------------
+// After a web_search result comes back, append a short reminder to that tool result so the
+// model sees it right before it writes the answer. REMINDER_MODE: on (default) | off
+const REMINDER_MODE = (process.env.REMINDER_MODE || "on").toLowerCase();
+const REMINDER_TEXT = "\n\n[Instructions for your answer: use only the search results above. For every price, date or fact, give its source link exactly as it appears in the results. If a result does not show a price or date, say so instead of guessing. Do not include any link that is not in the results. If the results do not answer the question, say that plainly.]";
+
+function addSearchReminder(messages) {
+  if (REMINDER_MODE === "off" || !Array.isArray(messages)) return false;
+  let idx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const role = messages[i]?.role;
+    if (role === "tool" || role === "function") { idx = i; break; }
+    if (role === "user") return false;
+  }
+  if (idx < 0) return false;
+  const tm = messages[idx];
+  if (typeof tm.content !== "string" || tm.content.includes("[Instructions for your answer:")) return false;
+  let name = tm.name;
+  if (!name && tm.tool_call_id) {
+    for (let i = idx - 1; i >= 0; i--) {
+      const calls = messages[i]?.tool_calls;
+      if (Array.isArray(calls)) {
+        const c = calls.find((x) => x?.id === tm.tool_call_id);
+        if (c) { name = c.function?.name; break; }
+      }
+    }
+  }
+  if (name !== "web_search") return false;
+  tm.content = tm.content + REMINDER_TEXT;
+  console.log("[remind] appended source-link reminder to web_search result");
+  return true;
+}
+
 const DROP_REQ = new Set([
   "host",
   "content-length",
@@ -164,6 +197,7 @@ if (!Array.isArray(json.tools) || json.tools.length === 0) {
 }
      console.log("[tc] TOOL NAMES:", (json.tools || []).map(t => t.function?.name || t.name || "unknown"));
       console.log("[tc] FINAL tools=" + (json.tools?.length ?? 0) + " tool_choice=" + JSON.stringify(json.tool_choice)); 
+      addSearchReminder(json.messages);
       body = Buffer.from(JSON.stringify(json));
       reqJson = json;
       hasWS = hasWebSearch;
