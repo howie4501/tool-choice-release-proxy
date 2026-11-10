@@ -60,10 +60,31 @@ const FRESH_MODE = (process.env.FRESHNESS_MODE || "fix").toLowerCase();
 const FRESH_ACTION = (process.env.FRESHNESS_ACTION || "delete").toLowerCase();
 const NEWSY = /\b(today|tonight|yesterday|this (morning|week|weekend)|breaking|scores?|weather|forecast|right now|just (announced|released))\b/i;
 
-function latestUserText(messages) {
-  const m = [...(messages || [])].reverse().find((x) => x?.role === "user");
-  return typeof m?.content === "string" ? m.content : JSON.stringify(m?.content ?? "");
+// Text of a message's content (string, or array of {type:"text",text} parts).
+function contentText(c) {
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) return c.map((p) => (typeof p === "string" ? p : typeof p?.text === "string" ? p.text : "")).join("\n");
+  return c == null ? "" : JSON.stringify(c);
 }
+
+// Mem0 prepends <relevant-memories>...</relevant-memories> to the user prompt. That block is
+// recalled history, not what the user just asked, so it must not drive the freshness decision.
+// Used ONLY for detection; messages sent upstream are never modified.
+function stripMemories(t) {
+  return String(t)
+    .replace(/<relevant-memories>[\s\S]*?<\/relevant-memories>/gi, " ")
+    .replace(/<relevant-memories>[\s\S]*$/i, " ");
+}
+
+function latestUserText(messages) {
+  const users = [...(messages || [])].reverse().filter((x) => x?.role === "user");
+  for (const m of users) {
+    const t = stripMemories(contentText(m.content)).trim();
+    if (t) return t;
+  }
+  return "";
+}
+
 
 function fixFreshness(message, messages) {
   if (FRESH_MODE === "off" || !message || !Array.isArray(message.tool_calls)) return 0;
