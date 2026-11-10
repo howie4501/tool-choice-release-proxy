@@ -77,13 +77,12 @@ function stripMemories(t) {
 }
 
 function latestUserText(messages) {
-  const users = [...(messages || [])].reverse().filter((x) => x?.role === "user");
-  for (const m of users) {
-    const t = stripMemories(contentText(m.content)).trim();
-    if (t) return t;
-  }
-  return "";
+  // Only the LATEST user message counts. If it is empty after stripping memories, return ""
+  // (no freshness) rather than inheriting an older message's news words.
+  const m = [...(messages || [])].reverse().find((x) => x?.role === "user");
+  return m ? stripMemories(contentText(m.content)).trim() : "";
 }
+
 
 
 function fixFreshness(message, messages) {
